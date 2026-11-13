@@ -187,7 +187,7 @@ dashboard-service 以 `@modelcontextprotocol/sdk` 提供 MCP Server（`/mcp`）�
 
 ---
 
-## 6. 里程碑
+## 6. 里程碑（全部完成）
 
 | # | 內容 | 驗收 |
 |---|---|---|
@@ -199,6 +199,8 @@ dashboard-service 以 `@modelcontextprotocol/sdk` 提供 MCP Server（`/mcp`）�
 | M6 | 熱區與元件連動、各自 Dockerfile、README | `docker compose up` 與單獨 `docker run` 皆可 |
 
 ---
+
+> 實作狀態：M1–M6 皆已完成；M6 的 Docker 映像檔尚未在有 Docker daemon 的環境實際建置過（compose 設定已驗證）。驗收情境 1–4 已在瀏覽器實際跑過，腳本在 `e2e/full-flow.cjs`。
 
 ## 7. 驗收情境（E2E，Playwright）
 1. 選「即時人流」模板，貼上正確表格 → 預覽為折線圖 → 存檔 → 替換右上 slot。

@@ -28,9 +28,12 @@ function useChatWidget() {
         const s = document.createElement("script");
         s.type = "module";
         s.src = chatWidgetUrl;
-        s.onerror = () => console.warn("[dashboard] chat widget unavailable; continuing without it");
-        document.head.appendChild(s);
         const el = document.createElement("dashboard-chat");
+        s.onerror = () => {
+          console.warn("[dashboard] chat widget unavailable; continuing without it");
+          el.remove();
+        };
+        document.head.appendChild(s);
         el.setAttribute("dashboard-url", location.origin);
         document.body.appendChild(el);
       })
