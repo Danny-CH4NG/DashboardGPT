@@ -3,20 +3,33 @@
   "framework": "fastify",
   "installCommand": "npm ci",
   "buildCommand": "npm run build",
-  "functions": {
-    "server.ts": { "maxDuration": 60 }
-  },
-  "rewrites": [{ "source": "/embed/:path*", "destination": "/index.html" }],
+  "rewrites": [
+    {
+      "source": "/embed/:path*",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/embed/:path*",
-      "headers": [{ "key": "Content-Security-Policy", "value": "frame-ancestors 'self' https://dashboardgpt-chat.vercel.app" }]
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'self' https://dashboardgpt-chat.vercel.app"
+        }
+      ]
     },
     {
       "source": "/component-manifest.json",
       "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
       ]
     }
   ]
