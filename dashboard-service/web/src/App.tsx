@@ -89,13 +89,17 @@ export function App() {
       <StationMap onSelect={(z) => z.componentId && setHighlight(z.componentId)} />
       <header className="topbar">
         <div className="topbar__brand">
-          <span className="dot" />
-          <strong>新竹站</strong>
-          <span className="muted">｜數位孿生</span>
+          <span className="brand-mark">
+            <span>HC</span>
+          </span>
+          <span className="brand-text">
+            <strong>新竹站｜數位孿生</strong>
+            <small>HSINCHU STATION · DIGITAL TWIN</small>
+          </span>
         </div>
         <div className="topbar__time">
-          {clock}
-          <span className="muted">　晴 24°C</span>
+          <span className="clock">{clock}</span>
+          <span className="muted">晴 24°C · 濕度 68%</span>
         </div>
         <div className="topbar__slot">{zone("top", layout.value)}</div>
       </header>

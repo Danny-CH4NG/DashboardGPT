@@ -93,7 +93,7 @@ export async function buildServer(store: Store) {
   // ---- built web app (production) ----
   const dist = path.join(root, "dist");
   if (existsSync(dist)) {
-    await app.register(fastifyStatic, { root: dist, wildcard: false });
+    await app.register(fastifyStatic, { root: dist });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api") || req.url.startsWith("/mcp")) return reply.code(404).send({ error: "not_found" });
       if (req.url.startsWith("/embed/")) reply.header("Content-Security-Policy", `frame-ancestors ${FRAME_ANCESTORS}`);
