@@ -1,5 +1,8 @@
 import "./env.ts"; // must stay first: loads .env before other modules read process.env
 import Fastify, { type FastifyReply } from "fastify";
+
+/** The Fastify factory; server.ts passes its own import so Vercel can detect the framework from the entry file. */
+export type FastifyFactory = typeof Fastify;
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import path from "node:path";
@@ -39,8 +42,8 @@ const MANIFEST_URL = process.env.MANIFEST_URL || undefined;
 const MANIFEST_FILE = process.env.MANIFEST_FILE ?? path.join(WEB_DIR, "component-manifest.json");
 const MANIFEST_REFRESH_MS = Number(process.env.MANIFEST_REFRESH_SECONDS ?? 30) * 1000;
 
-export async function buildServer(store: Store, manifest: ManifestRegistry) {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+export async function buildServer(store: Store, manifest: ManifestRegistry, fastify: FastifyFactory = Fastify) {
+  const app = fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   await app.register(cors, { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -123,7 +126,7 @@ export async function buildServer(store: Store, manifest: ManifestRegistry) {
 }
 
 /** Builds the whole service: storage, component manifest, HTTP app. Used by server.ts locally and on Vercel. */
-export async function createApp() {
+export async function createApp(fastify: FastifyFactory = Fastify) {
   // Prefer the manifest file next to the built page; on Vercel fall back to the deployment's own public URL.
   const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   const manifestSource = MANIFEST_URL
@@ -134,7 +137,7 @@ export async function createApp() {
   const manifest = new ManifestRegistry(manifestSource);
   const store = new Store(backendFromEnv(DATA_FILE), manifest);
   await store.init();
-  const app = await buildServer(store, manifest);
+  const app = await buildServer(store, manifest, fastify);
   app.log.info(`storage backend: ${store.backendKind}`);
   // The page and stored data work without a manifest; validation and MCP report 503 until it loads.
   await manifest.load().then(
@@ -147,8 +150,8 @@ export async function createApp() {
 }
 
 /** Starts listening. On Vercel the platform takes over the listen call. */
-export async function startServer() {
-  const app = await createApp();
+export async function startServer(fastify: FastifyFactory = Fastify) {
+  const app = await createApp(fastify);
   // "::" listens on IPv6 and IPv4, so "localhost" works whichever one it resolves to (Windows often picks ::1).
   // Machines without IPv6 fall back to IPv4 only.
   try {

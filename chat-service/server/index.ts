@@ -1,5 +1,8 @@
 import "./env.ts"; // must stay first: loads .env before other modules read process.env
 import Fastify from "fastify";
+
+/** The Fastify factory; server.ts passes its own import so Vercel can detect the framework from the entry file. */
+export type FastifyFactory = typeof Fastify;
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import path from "node:path";
@@ -29,9 +32,9 @@ const chatState = z.object({
   tableCount: z.number().int().min(0),
 });
 
-export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_URL)) {
+export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_URL), fastify: FastifyFactory = Fastify) {
   const agent = new Agent(dashboard);
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: 4 * 1024 * 1024 });
+  const app = fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" }, bodyLimit: 4 * 1024 * 1024 });
   await app.register(cors, { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) });
 
   app.setErrorHandler((err, _req, reply) => {
@@ -114,9 +117,9 @@ export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_
 }
 
 /** Starts listening. On Vercel the platform takes over the listen call. */
-export async function startServer() {
+export async function startServer(fastify: FastifyFactory = Fastify) {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_KEY) console.warn("[chat] ANTHROPIC_API_KEY is not set; chat replies will fail.");
-  const app = await buildServer();
+  const app = await buildServer(undefined, fastify);
   // "::" listens on IPv6 and IPv4, so "localhost" works whichever one it resolves to (Windows often picks ::1).
   // Machines without IPv6 fall back to IPv4 only.
   try {
