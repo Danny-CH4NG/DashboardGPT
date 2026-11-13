@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 // Builds the embeddable widget as one ES module: dist/widget.js
 export default defineConfig({
   plugins: [react()],
+  // public/ is the output folder here (widget.js next to the demo page), not a source of assets to copy.
+  publicDir: false,
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
   build: {
     // Next to the committed demo page (public/index.html), so keep the folder's other files.

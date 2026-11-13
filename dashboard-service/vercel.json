@@ -5,6 +5,10 @@
   "buildCommand": "npm run build",
   "rewrites": [
     {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
       "source": "/embed/:path*",
       "destination": "/index.html"
     }
