@@ -6,7 +6,9 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { gridSize } from "../shared/schema.ts";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Invalid, NotFound, Store, type StoreEvent } from "./store.ts";
+import { createMcpServer } from "./mcp.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4100);
@@ -68,6 +70,23 @@ export async function buildServer(store: Store) {
       store.off("event", send);
     });
   });
+
+  // ---- MCP (stateless Streamable HTTP): one server + transport per request ----
+  app.post("/mcp", async (req, reply) => {
+    const server = createMcpServer(store);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    reply.hijack();
+    reply.raw.on("close", () => {
+      transport.close();
+      server.close();
+    });
+    await server.connect(transport);
+    await transport.handleRequest(req.raw, reply.raw, req.body);
+  });
+  const mcpNotAllowed = async (_req: unknown, reply: FastifyReply) =>
+    reply.code(405).header("Allow", "POST").send({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null });
+  app.get("/mcp", mcpNotAllowed);
+  app.delete("/mcp", mcpNotAllowed);
 
   app.get("/healthz", async () => ({ ok: true }));
 
