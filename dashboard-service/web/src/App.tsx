@@ -3,7 +3,7 @@ import type { ComponentSpec, Layout, Slot, ZoneId } from "./types.ts";
 import { api, useLive } from "./api.ts";
 import { ComponentFrame } from "./components/ComponentFrame.tsx";
 import { LibraryDrawer } from "./components/LibraryDrawer.tsx";
-import { StationMap } from "./components/StationMap.tsx";
+import { DEFAULT_BASEMAP, StationMap, type Basemap } from "./components/StationMap.tsx";
 
 const LAYOUT_EVENTS = ["layout.updated"];
 const LIBRARY_EVENTS = ["library.updated"];
@@ -17,31 +17,31 @@ function useClock() {
   return now.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-/** Loads the optional chat widget. The dashboard works the same without it. */
-function useChatWidget() {
+/** Runtime config from the server; falls back to defaults so the page still renders without it. */
+function useConfig() {
+  const [config, setConfig] = useState<{ chatWidgetUrl: string; basemap: Basemap } | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    api
-      .config()
-      .then(({ chatWidgetUrl }) => {
-        if (cancelled || !chatWidgetUrl || document.querySelector("dashboard-chat")) return;
-        const s = document.createElement("script");
-        s.type = "module";
-        s.src = chatWidgetUrl;
-        const el = document.createElement("dashboard-chat");
-        s.onerror = () => {
-          console.warn("[dashboard] chat widget unavailable; continuing without it");
-          el.remove();
-        };
-        document.head.appendChild(s);
-        el.setAttribute("dashboard-url", location.origin);
-        document.body.appendChild(el);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    api.config().then(setConfig, () => setConfig({ chatWidgetUrl: "", basemap: DEFAULT_BASEMAP }));
   }, []);
+  return config;
+}
+
+/** Loads the optional chat widget. The dashboard works the same without it. */
+function useChatWidget(chatWidgetUrl: string | undefined) {
+  useEffect(() => {
+    if (!chatWidgetUrl || document.querySelector("dashboard-chat")) return;
+    const s = document.createElement("script");
+    s.type = "module";
+    s.src = chatWidgetUrl;
+    const el = document.createElement("dashboard-chat");
+    s.onerror = () => {
+      console.warn("[dashboard] chat widget unavailable; continuing without it");
+      el.remove();
+    };
+    document.head.appendChild(s);
+    el.setAttribute("dashboard-url", location.origin);
+    document.body.appendChild(el);
+  }, [chatWidgetUrl]);
 }
 
 export function App() {
@@ -50,7 +50,8 @@ export function App() {
   const [replacing, setReplacing] = useState<Slot | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const clock = useClock();
-  useChatWidget();
+  const config = useConfig();
+  useChatWidget(config?.chatWidgetUrl);
 
   const byId = useMemo(() => Object.fromEntries((library.value ?? []).map((c) => [c.id, c])), [library.value]);
 
@@ -89,7 +90,7 @@ export function App() {
 
   return (
     <div className="app">
-      <StationMap onSelect={(z) => z.componentId && setHighlight(z.componentId)} />
+      {config && <StationMap basemap={config.basemap} onSelect={(z) => z.componentId && setHighlight(z.componentId)} />}
       <header className="topbar">
         <div className="topbar__brand">
           <span className="brand-mark">

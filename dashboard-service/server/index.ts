@@ -23,6 +23,14 @@ const isAllowedOrigin = originChecker((process.env.ALLOWED_ORIGINS ?? "").split(
 const FRAME_ANCESTORS = process.env.FRAME_ANCESTORS ?? "'self' http://localhost:* http://127.0.0.1:* http://[::1]:*";
 // Optional: URL of the chat widget script. Unset = dashboard runs without chat.
 const CHAT_WIDGET_URL = process.env.CHAT_WIDGET_URL ?? "";
+// Map basemap (raster tiles). Default: OpenStreetMap, darkened in the browser to match the theme.
+// For production traffic use your own tile server or a provider: OSM's servers are for light use only.
+const BASEMAP = {
+  tiles: process.env.BASEMAP_TILES || "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  attribution: process.env.BASEMAP_ATTRIBUTION || "© OpenStreetMap contributors",
+  maxzoom: Number(process.env.BASEMAP_MAXZOOM ?? 19),
+  darken: (process.env.BASEMAP_DARKEN ?? "true") !== "false",
+};
 // Component manifest published by the frontend build: a URL (frontend deployed separately) or a file.
 const MANIFEST_URL = process.env.MANIFEST_URL || undefined;
 const MANIFEST_FILE = process.env.MANIFEST_FILE ?? path.join(root, "dist", "component-manifest.json");
@@ -42,7 +50,7 @@ export async function buildServer(store: Store, manifest: ManifestRegistry) {
   });
 
   // ---- config for the web app ----
-  app.get("/api/config", async () => ({ chatWidgetUrl: CHAT_WIDGET_URL }));
+  app.get("/api/config", async () => ({ chatWidgetUrl: CHAT_WIDGET_URL, basemap: BASEMAP }));
 
   // ---- component manifest (published by the frontend build) ----
   app.get("/api/manifest/status", async () => manifest.status());

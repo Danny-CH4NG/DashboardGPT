@@ -71,18 +71,37 @@ function graticule(): GeoJSON.FeatureCollection<GeoJSON.LineString> {
   return { type: "FeatureCollection", features: lines };
 }
 
-const BASEMAP = import.meta.env.VITE_BASEMAP_TILES ?? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+/** Raster basemap, configured on the server (.env) and delivered via /api/config. */
+export type Basemap = { tiles: string; attribution: string; maxzoom: number; darken: boolean };
+export const DEFAULT_BASEMAP: Basemap = {
+  tiles: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  attribution: "© OpenStreetMap contributors",
+  maxzoom: 19,
+  darken: true,
+};
 
-function buildStyle(zones: HotZone[]): StyleSpecification {
+// Swapping brightness min/max inverts a light map; rotating the hue back keeps water blue-ish.
+const DARKEN_PAINT = {
+  "raster-brightness-min": 1,
+  "raster-brightness-max": 0.08,
+  "raster-hue-rotate": 200,
+  "raster-saturation": -0.55,
+  "raster-contrast": 0.1,
+  "raster-opacity": 0.8,
+};
+const PLAIN_PAINT = { "raster-opacity": 0.85, "raster-saturation": -0.4, "raster-brightness-max": 0.85 };
+
+function buildStyle(zones: HotZone[], basemap: Basemap): StyleSpecification {
   return {
     version: 8,
     sources: {
       basemap: {
         type: "raster",
-        tiles: ["a", "b", "c", "d"].map((s) => BASEMAP.replace("basemaps.", `${s}.basemaps.`)),
+        // "{s}" in the URL means the provider has a/b/c subdomains.
+        tiles: basemap.tiles.includes("{s}") ? ["a", "b", "c"].map((d) => basemap.tiles.replace("{s}", d)) : [basemap.tiles],
         tileSize: 256,
-        maxzoom: 19,
-        attribution: "© OpenStreetMap contributors © CARTO",
+        maxzoom: basemap.maxzoom,
+        attribution: basemap.attribution,
       },
       grid: { type: "geojson", data: graticule() },
       zones: {
@@ -96,7 +115,7 @@ function buildStyle(zones: HotZone[]): StyleSpecification {
     },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": "#0a1220" } },
-      { id: "basemap", type: "raster", source: "basemap", paint: { "raster-opacity": 0.85, "raster-saturation": -0.4, "raster-brightness-max": 0.85 } },
+      { id: "basemap", type: "raster", source: "basemap", paint: basemap.darken ? DARKEN_PAINT : PLAIN_PAINT },
       { id: "grid", type: "line", source: "grid", paint: { "line-color": "#1d3350", "line-width": 1, "line-opacity": 0.7 } },
       { id: "zones", type: "fill", source: "zones", paint: { "fill-color": ["get", "color"], "fill-opacity": 0.35 } },
       { id: "zones-edge", type: "line", source: "zones", paint: { "line-color": ["get", "color"], "line-width": 1.5 } },
@@ -115,10 +134,10 @@ function buildStyle(zones: HotZone[]): StyleSpecification {
   };
 }
 
-type Props = { onSelect?: (zone: HotZone) => void; zones?: HotZone[] };
+type Props = { onSelect?: (zone: HotZone) => void; zones?: HotZone[]; basemap?: Basemap };
 
 /** Map basemap + simple extruded station geometry, rotatable and zoomable. */
-export function StationMap({ onSelect, zones = defaultZones }: Props) {
+export function StationMap({ onSelect, zones = defaultZones, basemap = DEFAULT_BASEMAP }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
@@ -126,7 +145,7 @@ export function StationMap({ onSelect, zones = defaultZones }: Props) {
   useEffect(() => {
     const map = new maplibregl.Map({
       container: el.current!,
-      style: buildStyle(zones),
+      style: buildStyle(zones, basemap),
       center: toLngLat(0, 0),
       zoom: 17.1,
       pitch: 58,

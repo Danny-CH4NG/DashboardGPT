@@ -59,4 +59,6 @@ web/src/catalog/
 | `ALLOWED_ORIGINS` | `http://localhost:4200,http://localhost:5173` | 允許呼叫 API 的來源 |
 | `FRAME_ANCESTORS` | `'self' http://localhost:4200 …` | 允許以 iframe 嵌入 `/embed/*` 的頁面 |
 | `CHAT_WIDGET_URL` | （空） | chat-service 的 `widget.js`；不設就沒有聊天視窗 |
-| `VITE_BASEMAP_TILES` | Carto dark | build 時指定底圖瓦片 URL |
+| `BASEMAP_TILES` | OpenStreetMap | 底圖瓦片 URL（`{z}/{x}/{y}`，`{s}` 代表 a/b/c 子網域）；改 `.env` 後重啟即生效，不用重新 build |
+| `BASEMAP_ATTRIBUTION` | `© OpenStreetMap contributors` | 地圖版權標示 |
+| `BASEMAP_DARKEN` | `true` | 把淺色底圖在瀏覽器轉成深色以配合主題；底圖本身是深色時設 `false` |

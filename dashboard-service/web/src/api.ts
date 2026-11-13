@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { ComponentSpec, GridSize, Layout } from "./types.ts";
+import type { Basemap } from "./components/StationMap.tsx";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
@@ -11,7 +12,7 @@ export const api = {
   components: () => fetch("/api/components").then((r) => json<ComponentSpec[]>(r)),
   component: (id: string) => fetch(`/api/components/${id}`).then((r) => json<ComponentSpec>(r)),
   draft: (id: string) => fetch(`/api/drafts/${id}`).then((r) => json<{ spec: ComponentSpec }>(r)),
-  config: () => fetch("/api/config").then((r) => json<{ chatWidgetUrl: string }>(r)),
+  config: () => fetch("/api/config").then((r) => json<{ chatWidgetUrl: string; basemap: Basemap }>(r)),
   replaceSlot: (slotId: string, componentId: string) =>
     fetch(`/api/layout/slots/${slotId}`, {
       method: "PUT",
