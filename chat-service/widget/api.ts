@@ -6,7 +6,11 @@ export type ChatEvent =
   | { type: "preview"; draftId: string; previewUrl: string; title?: string }
   | { type: "saved"; componentId: string; title?: string }
   | { type: "error"; message: string }
+  | { type: "state"; state: ChatState }
   | { type: "done" };
+
+/** Conversation state: opaque to the widget, kept here and sent back with every message. */
+export type ChatState = { template: { id: string; title: string; type: string } | null; draftId?: string; savedComponentId?: string; [k: string]: unknown };
 
 /** The API lives wherever widget.js was loaded from. */
 export const API_BASE = new URL(".", import.meta.url).origin;
@@ -32,24 +36,24 @@ async function json<T>(res: Response): Promise<T> {
 export const api = {
   templates: () => call(`${API_BASE}/api/templates`).then((r) => json<{ templates: Template[] }>(r)),
   slots: () => call(`${API_BASE}/api/slots`).then((r) => json<{ slots: Slot[] }>(r)),
-  createSession: (templateId: string | null) =>
-    call(`${API_BASE}/api/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ templateId }) }).then((r) =>
-      json<{ sessionId: string; template: { id: string; title: string; type: string } | null; hint: string | null }>(r),
+  start: (templateId: string | null) =>
+    call(`${API_BASE}/api/start`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ templateId }) }).then((r) =>
+      json<{ state: ChatState; hint: string | null }>(r),
     ),
-  save: (sid: string) =>
-    call(`${API_BASE}/api/sessions/${sid}/save`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then((r) =>
+  save: (draftId: string) =>
+    call(`${API_BASE}/api/save`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draftId }) }).then((r) =>
       json<{ componentId: string; title?: string }>(r),
     ),
-  apply: (sid: string, slotId: string) =>
-    call(`${API_BASE}/api/sessions/${sid}/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slotId }) }).then((r) =>
+  apply: (componentId: string, slotId: string) =>
+    call(`${API_BASE}/api/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ componentId, slotId }) }).then((r) =>
       json<{ ok: true }>(r),
     ),
   /** POST + read the SSE stream of agent events. */
-  async send(sid: string, text: string, onEvent: (e: ChatEvent) => void, signal: AbortSignal) {
-    const res = await call(`${API_BASE}/api/sessions/${sid}/messages`, {
+  async send(state: ChatState, text: string, onEvent: (e: ChatEvent) => void, signal: AbortSignal) {
+    const res = await call(`${API_BASE}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ state, text }),
       signal,
     });
     if (!res.ok || !res.body) throw new Error((await res.json().catch(() => ({}))).message ?? `HTTP ${res.status}`);

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,widget \"tsx watch server/index.ts\" \"vite build --watch\"",
+    "dev": "concurrently -k -n api,widget \"tsx watch server.ts\" \"vite build --watch\"",
     "build": "vite build",
-    "start": "tsx server/index.ts",
+    "start": "tsx server.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },

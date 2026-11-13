@@ -9,13 +9,16 @@ import { z } from "zod";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { gridSize } from "./layout.ts";
 import { ManifestRegistry, ManifestUnavailable } from "./manifest.ts";
-import { Invalid, NotFound, Store, type StoreEvent } from "./store.ts";
+import { Invalid, NotFound, Store } from "./store.ts";
+import { backendFromEnv } from "./storage.ts";
 import { createMcpServer } from "./mcp.ts";
 import { originChecker } from "./origins.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4100);
-const DATA_FILE = process.env.DATA_FILE ?? path.join(root, "data", "db.json");
+const DATA_FILE = path.join(root, "data", "db.json");
+// Built web app (Vite output). On Vercel the CDN serves it; locally Fastify does.
+const WEB_DIR = path.join(root, "public");
 // Origins allowed to call the API (e.g. the chat service) — comma separated.
 // Loopback origins are always allowed; list others (e.g. the deployed chat page), comma separated.
 const isAllowedOrigin = originChecker((process.env.ALLOWED_ORIGINS ?? "").split(","));
@@ -33,7 +36,7 @@ const BASEMAP = {
 };
 // Component manifest published by the frontend build: a URL (frontend deployed separately) or a file.
 const MANIFEST_URL = process.env.MANIFEST_URL || undefined;
-const MANIFEST_FILE = process.env.MANIFEST_FILE ?? path.join(root, "dist", "component-manifest.json");
+const MANIFEST_FILE = process.env.MANIFEST_FILE ?? path.join(WEB_DIR, "component-manifest.json");
 const MANIFEST_REFRESH_MS = Number(process.env.MANIFEST_REFRESH_SECONDS ?? 30) * 1000;
 
 export async function buildServer(store: Store, manifest: ManifestRegistry) {
@@ -78,21 +81,10 @@ export async function buildServer(store: Store, manifest: ManifestRegistry) {
   });
   app.post("/api/layout/reset", async () => store.resetLayout());
 
-  // ---- server-sent events: lets every open page refresh on change ----
-  app.get("/api/events", (req, reply: FastifyReply) => {
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      ...(isAllowedOrigin(req.headers.origin) ? { "Access-Control-Allow-Origin": req.headers.origin!, Vary: "Origin" } : {}),
-    });
-    const send = (e: StoreEvent) => reply.raw.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
-    const ping = setInterval(() => reply.raw.write(": ping\n\n"), 25_000);
-    store.on("event", send);
-    req.raw.on("close", () => {
-      clearInterval(ping);
-      store.off("event", send);
-    });
+  // ---- change detection: pages poll this instead of holding a connection open (works on serverless) ----
+  app.get("/api/revision", async (_req, reply) => {
+    reply.header("Cache-Control", "public, max-age=0, s-maxage=2");
+    return { revision: await store.revision() };
   });
 
   // ---- MCP (stateless Streamable HTTP): one server + transport per request ----
@@ -114,10 +106,11 @@ export async function buildServer(store: Store, manifest: ManifestRegistry) {
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // ---- built web app (production) ----
-  const dist = path.join(root, "dist");
-  if (existsSync(dist)) {
-    await app.register(fastifyStatic, { root: dist });
+  app.get("/api/storage", async () => ({ backend: store.backendKind }));
+
+  // ---- built web app (local/Docker; on Vercel the CDN serves public/) ----
+  if (existsSync(path.join(WEB_DIR, "index.html"))) {
+    await app.register(fastifyStatic, { root: WEB_DIR });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api") || req.url.startsWith("/mcp")) return reply.code(404).send({ error: "not_found" });
       if (req.url.startsWith("/embed/")) reply.header("Content-Security-Policy", `frame-ancestors ${FRAME_ANCESTORS}`);
@@ -129,11 +122,20 @@ export async function buildServer(store: Store, manifest: ManifestRegistry) {
   return app;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const manifest = new ManifestRegistry({ url: MANIFEST_URL, file: MANIFEST_URL ? undefined : MANIFEST_FILE });
-  const store = new Store(DATA_FILE, manifest);
+/** Builds the whole service: storage, component manifest, HTTP app. Used by server.ts locally and on Vercel. */
+export async function createApp() {
+  // Prefer the manifest file next to the built page; on Vercel fall back to the deployment's own public URL.
+  const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  const manifestSource = MANIFEST_URL
+    ? { url: MANIFEST_URL }
+    : existsSync(MANIFEST_FILE) || !productionHost
+      ? { file: MANIFEST_FILE }
+      : { url: `https://${productionHost}/component-manifest.json` };
+  const manifest = new ManifestRegistry(manifestSource);
+  const store = new Store(backendFromEnv(DATA_FILE), manifest);
   await store.init();
   const app = await buildServer(store, manifest);
+  app.log.info(`storage backend: ${store.backendKind}`);
   // The page and stored data work without a manifest; validation and MCP report 503 until it loads.
   await manifest.load().then(
     () => app.log.info(`component manifest ${manifest.version} loaded from ${manifest.sourceLabel}`),
@@ -141,6 +143,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   );
   manifest.on("changed", (v) => app.log.info(`component manifest changed → ${v}`));
   manifest.startAutoReload(MANIFEST_REFRESH_MS, (e) => app.log.warn(`component manifest reload failed: ${e.message}`));
+  return app;
+}
+
+/** Starts listening. On Vercel the platform takes over the listen call. */
+export async function startServer() {
+  const app = await createApp();
   // "::" listens on IPv6 and IPv4, so "localhost" works whichever one it resolves to (Windows often picks ::1).
   // Machines without IPv6 fall back to IPv4 only.
   try {
@@ -150,4 +158,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     if (process.env.HOST || (code !== "EAFNOSUPPORT" && code !== "EADDRNOTAVAIL")) throw e;
     await app.listen({ port: PORT, host: "0.0.0.0" });
   }
+  return app;
 }

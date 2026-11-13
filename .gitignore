@@ -3,3 +3,7 @@ dist/
 *.log
 dashboard-service/data/
 .env
+# build output (Vite)
+dashboard-service/public/
+chat-service/public/widget.js
+.vercel

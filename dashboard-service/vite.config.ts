@@ -28,7 +28,7 @@ function componentManifest(): Plugin {
 export default defineConfig({
   root: "web",
   plugins: [react(), componentManifest()],
-  build: { outDir: "../dist", emptyOutDir: true },
+  build: { outDir: "../public", emptyOutDir: true },
   server: {
     port: 5173,
     proxy: { "/api": API, "/mcp": API },

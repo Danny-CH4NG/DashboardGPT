@@ -5,6 +5,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Store } from "../store.ts";
+import { DocumentBackend } from "../storage.ts";
 import { buildServer } from "../index.ts";
 import { ManifestRegistry, type Manifest } from "../manifest.ts";
 // Test-only: generate the manifest the way the frontend build does. Server code never imports web/.
@@ -30,7 +31,7 @@ beforeAll(async () => {
   await writeFile(manifestFile, JSON.stringify(buildManifest()));
   manifest = new ManifestRegistry({ file: manifestFile });
   await manifest.load();
-  const store = new Store(path.join(dir, "db.json"), manifest);
+  const store = new Store(new DocumentBackend(path.join(dir, "db.json")), manifest);
   await store.init();
   app = await buildServer(store, manifest);
   await app.listen({ port: 0 });

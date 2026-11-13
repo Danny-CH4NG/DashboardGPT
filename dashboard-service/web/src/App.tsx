@@ -5,8 +5,6 @@ import { ComponentFrame } from "./components/ComponentFrame.tsx";
 import { LibraryDrawer } from "./components/LibraryDrawer.tsx";
 import { DEFAULT_BASEMAP, StationMap, type Basemap } from "./components/StationMap.tsx";
 
-const LAYOUT_EVENTS = ["layout.updated"];
-const LIBRARY_EVENTS = ["library.updated"];
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -45,8 +43,8 @@ function useChatWidget(chatWidgetUrl: string | undefined) {
 }
 
 export function App() {
-  const layout = useLive(api.layout, LAYOUT_EVENTS);
-  const library = useLive(api.components, LIBRARY_EVENTS);
+  const layout = useLive(api.layout);
+  const library = useLive(api.components);
   const [replacing, setReplacing] = useState<Slot | null>(null);
   const [highlight, setHighlight] = useState<string | null>(null);
   const clock = useClock();

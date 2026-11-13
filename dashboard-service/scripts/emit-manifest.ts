@@ -6,7 +6,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildManifest } from "../web/src/catalog/manifest.ts";
 
-const out = path.resolve(process.argv[2] ?? "dist/component-manifest.json");
+const out = path.resolve(process.argv[2] ?? "public/component-manifest.json");
 await mkdir(path.dirname(out), { recursive: true });
 const m = buildManifest();
 await writeFile(out, JSON.stringify(m, null, 2));

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web \"cross-env MANIFEST_URL=http://localhost:5173/component-manifest.json tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently -k -n api,web \"cross-env MANIFEST_URL=http://localhost:5173/component-manifest.json tsx watch server.ts\" \"vite\"",
     "build": "vite build",
-    "start": "tsx server/index.ts",
+    "start": "tsx server.ts",
     "manifest": "tsx scripts/emit-manifest.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
@@ -17,6 +17,7 @@
     "@fontsource/orbitron": "^5.3.0",
     "@fontsource/rajdhani": "^5.3.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@upstash/redis": "^1.41.0",
     "ajv": "^8.20.0",
     "cross-env": "^10.1.0",
     "echarts": "^6.1.0",

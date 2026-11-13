@@ -9,7 +9,10 @@ import { gridSize } from "./layout.ts";
 import { ManifestUnavailable, type ManifestRegistry } from "./manifest.ts";
 import { Invalid, NotFound, type Store } from "./store.ts";
 
-const PUBLIC_URL = (process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 4100}`).replace(/\/$/, "");
+const PUBLIC_URL = (
+  process.env.PUBLIC_URL ??
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : `http://localhost:${process.env.PORT ?? 4100}`)
+).replace(/\/$/, "");
 
 const ok = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -30,9 +33,9 @@ async function guard<T>(fn: () => Promise<T> | T) {
   }
 }
 
-function withId(store: Store, spec: Record<string, unknown>) {
+async function withId(store: Store, spec: Record<string, unknown>) {
   if (typeof spec.id === "string" && /^[a-z0-9-]{3,64}$/.test(spec.id)) return spec;
-  return { ...spec, id: store.uniqueId(typeof spec.id === "string" ? spec.id : `ai-${spec.type ?? "component"}`) };
+  return { ...spec, id: await store.uniqueId(typeof spec.id === "string" ? spec.id : `ai-${spec.type ?? "component"}`) };
 }
 
 export function createMcpServer(store: Store, manifest: ManifestRegistry) {
@@ -103,7 +106,7 @@ export function createMcpServer(store: Store, manifest: ManifestRegistry) {
     },
     async () =>
       ok({
-        templates: store.listComponents().map((c) => ({
+        templates: (await store.listComponents()).map((c) => ({
           id: c.id,
           title: c.title,
           type: c.type,
@@ -129,8 +132,8 @@ export function createMcpServer(store: Store, manifest: ManifestRegistry) {
       inputSchema: { spec: specInput },
     },
     async ({ spec }) =>
-      guard(() => {
-        const r = manifest.validate(withId(store, spec));
+      guard(async () => {
+        const r = manifest.validate(await withId(store, spec));
         return r.ok ? { ok: true } : { ok: false, errors: r.errors };
       }),
   );
@@ -144,7 +147,7 @@ export function createMcpServer(store: Store, manifest: ManifestRegistry) {
     },
     async ({ spec }) =>
       guard(async () => {
-        const d = await store.createDraft(withId(store, spec));
+        const d = await store.createDraft(await withId(store, spec));
         return { ok: true, draftId: d.draftId, previewUrl: `${PUBLIC_URL}/embed/preview/${d.draftId}`, spec: d.spec };
       }),
   );
@@ -158,7 +161,7 @@ export function createMcpServer(store: Store, manifest: ManifestRegistry) {
     },
     async ({ draftId, spec }) =>
       guard(async () => {
-        const d = await store.updateDraft(draftId, withId(store, spec));
+        const d = await store.updateDraft(draftId, await withId(store, spec));
         return { ok: true, draftId, previewUrl: `${PUBLIC_URL}/embed/preview/${draftId}`, spec: d.spec };
       }),
   );
@@ -180,7 +183,7 @@ export function createMcpServer(store: Store, manifest: ManifestRegistry) {
   server.registerTool(
     "list_slots",
     { title: "List page slots", description: "Lists the slots on the dashboard page and which component each holds.", inputSchema: {} },
-    async () => ok({ slots: store.listSlots() }),
+    async () => ok({ slots: await store.listSlots() }),
   );
 
   server.registerTool(

@@ -4,7 +4,6 @@
  * by what the dashboard's validation and the table analysis return.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { randomUUID } from "node:crypto";
 import { DashboardClient, DashboardUnavailable } from "./dashboard.ts";
 import { SYSTEM_PROMPT } from "./prompt.ts";
 import { analyzePastedText } from "./table.ts";
@@ -30,24 +29,27 @@ export type ChatEvent =
   | { type: "preview"; draftId: string; previewUrl: string; title?: string }
   | { type: "saved"; componentId: string; title?: string }
   | { type: "error"; message: string }
+  | { type: "state"; state: ChatState }
   | { type: "done" };
 
 export type Template = { id: string; title: string; type: string; description?: string; [k: string]: unknown };
 
-export type Session = {
-  id: string;
+/**
+ * Everything a conversation needs, kept by the browser and sent with each message,
+ * so any server instance can handle any turn (no session store — suits serverless).
+ */
+export type ChatState = {
   template: Template | null;
   messages: Anthropic.Beta.BetaMessageParam[];
   draftId?: string;
   previewUrl?: string;
   savedComponentId?: string;
   tableCount: number;
-  busy: boolean;
-  updatedAt: number;
 };
 
+export const newChatState = (template: Template | null): ChatState => ({ template, messages: [], tableCount: 0 });
+
 export class Agent {
-  private sessions = new Map<string, Session>();
   private client: Anthropic;
 
   constructor(private dashboard: DashboardClient) {
@@ -56,25 +58,9 @@ export class Agent {
       // Explicit, so an unrelated ANTHROPIC_BASE_URL in the environment cannot redirect traffic.
       baseURL: process.env.ANTHROPIC_API_BASE ?? "https://api.anthropic.com",
     });
-    setInterval(() => this.gc(), 10 * 60_000).unref();
   }
 
-  private gc() {
-    const cutoff = Date.now() - 2 * 3600_000;
-    for (const [id, s] of this.sessions) if (s.updatedAt < cutoff) this.sessions.delete(id);
-  }
-
-  create(template: Template | null): Session {
-    const s: Session = { id: randomUUID(), template, messages: [], tableCount: 0, busy: false, updatedAt: Date.now() };
-    this.sessions.set(s.id, s);
-    return s;
-  }
-
-  get(id: string) {
-    return this.sessions.get(id);
-  }
-
-  private buildUserContent(s: Session, text: string): Anthropic.Beta.BetaContentBlockParam[] {
+  private buildUserContent(s: ChatState, text: string): Anthropic.Beta.BetaContentBlockParam[] {
     const blocks: Anthropic.Beta.BetaContentBlockParam[] = [];
     if (s.messages.length === 0) {
       blocks.push({
@@ -92,11 +78,9 @@ export class Agent {
     return blocks;
   }
 
-  async run(s: Session, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal) {
-    if (s.busy) return emit({ type: "error", message: "上一則訊息還在處理中，請稍候。" });
-    s.busy = true;
-    s.updatedAt = Date.now();
-    const snapshot = s.messages.length;
+  /** Runs one user turn on a copy of `state`; emits the new state at the end ("state" event) when it succeeds. */
+  async run(state: ChatState, text: string, emit: (e: ChatEvent) => void, signal: AbortSignal) {
+    const s: ChatState = structuredClone(state);
     try {
       s.messages.push({ role: "user", content: this.buildUserContent(s, text) });
       const tools = await this.dashboard.claudeTools(AGENT_TOOLS);
@@ -144,21 +128,19 @@ export class Agent {
         }
         s.messages.push({ role: "user", content: results });
       }
+      // A turn that stopped on a tool call (step limit) would leave an unanswered tool_use; keep the old state then.
+      const last = s.messages[s.messages.length - 1];
+      const dangling = last?.role === "assistant" && Array.isArray(last.content) && last.content.some((b) => b.type === "tool_use");
+      if (last?.role === "assistant" && !dangling) emit({ type: "state", state: s });
     } catch (e) {
-      if (signal.aborted) {
-        s.messages.length = snapshot; // drop the half-finished turn
-        return;
-      }
-      s.messages.length = snapshot;
-      emit({ type: "error", message: describeError(e) });
+      // On failure the browser keeps its previous state, so the half-finished turn is simply dropped.
+      if (!signal.aborted) emit({ type: "error", message: describeError(e) });
     } finally {
-      s.busy = false;
-      s.updatedAt = Date.now();
       emit({ type: "done" });
     }
   }
 
-  private onToolSuccess(s: Session, tool: string, data: Record<string, unknown>, emit: (e: ChatEvent) => void) {
+  private onToolSuccess(s: ChatState, tool: string, data: Record<string, unknown>, emit: (e: ChatEvent) => void) {
     if ((tool === "create_draft" || tool === "update_draft") && typeof data.draftId === "string") {
       s.draftId = data.draftId;
       s.previewUrl = String(data.previewUrl);

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, type ChatEvent, type Slot, type Template } from "./api.ts";
+import { api, type ChatEvent, type ChatState, type Slot, type Template } from "./api.ts";
 
 type Part =
   | { kind: "text"; text: string }
@@ -8,7 +8,7 @@ type Part =
   | { kind: "saved"; title?: string }
   | { kind: "error"; text: string };
 type Msg = { role: "user" | "assistant"; parts: Part[] };
-type Session = { id: string; template: { id: string; title: string; type: string } | null };
+type Session = { template: { id: string; title: string; type: string } | null };
 
 // ---- tiny, safe markdown subset: paragraphs, lists, **bold**, `code` ----
 function inline(text: string): ReactNode[] {
@@ -118,7 +118,8 @@ function TemplatePicker({ onPick }: { onPick: (t: Template | null) => void }) {
   );
 }
 
-function SaveBar({ sessionId, saved, onSaved }: { sessionId: string; saved: boolean; onSaved: (title?: string) => void }) {
+function SaveBar({ draftId, savedId, onSaved }: { draftId: string; savedId: string | null; onSaved: (componentId: string) => void }) {
+  const saved = !!savedId;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
@@ -133,8 +134,8 @@ function SaveBar({ sessionId, saved, onSaved }: { sessionId: string; saved: bool
     setBusy(true);
     setError(null);
     try {
-      const r = await api.save(sessionId);
-      onSaved(r.title);
+      const r = await api.save(draftId);
+      onSaved(r.componentId);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -146,7 +147,7 @@ function SaveBar({ sessionId, saved, onSaved }: { sessionId: string; saved: bool
     setBusy(true);
     setError(null);
     try {
-      await api.apply(sessionId, slotId);
+      await api.apply(savedId!, slotId);
       setPlaced(slots?.find((s) => s.slotId === slotId)?.title ?? slotId);
     } catch (e) {
       setError((e as Error).message);
@@ -192,8 +193,10 @@ export function Widget() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [hasPreview, setHasPreview] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  /** The conversation itself; the server keeps nothing between messages. */
+  const stateRef = useRef<ChatState | null>(null);
   const [unread, setUnread] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -209,10 +212,12 @@ export function Widget() {
   const start = async (t: Template | null) => {
     setStarting(true);
     try {
-      const r = await api.createSession(t?.id ?? null);
-      setSession({ id: r.sessionId, template: r.template });
-      const intro = r.template
-        ? `已選擇模板 **${r.template.title}**。請貼上要顯示的資料，可以直接從 Excel 複製，或用 CSV、Markdown 表格。\n\n格式範例：`
+      const r = await api.start(t?.id ?? null);
+      stateRef.current = r.state;
+      const tpl = r.state.template;
+      setSession({ template: tpl && { id: tpl.id, title: tpl.title, type: tpl.type } });
+      const intro = tpl
+        ? `已選擇模板 **${tpl.title}**。請貼上要顯示的資料，可以直接從 Excel 複製，或用 CSV、Markdown 表格。\n\n格式範例：`
         : "使用 **空白模板**。請貼上資料（可直接從 Excel 複製，或用 CSV、Markdown 表格），並簡單說明想呈現什麼，我會挑選最合適的元件。";
       setMessages([{ role: "assistant", parts: [{ kind: "text", text: intro }, ...(r.hint ? [{ kind: "status" as const, text: r.hint }] : [])] }]);
       setTimeout(() => inputRef.current?.focus(), 50);
@@ -228,8 +233,9 @@ export function Widget() {
     abortRef.current?.abort();
     setSession(null);
     setMessages([]);
-    setHasPreview(false);
-    setSaved(false);
+    stateRef.current = null;
+    setDraftId(null);
+    setSavedId(null);
     setBusy(false);
   };
 
@@ -249,15 +255,18 @@ export function Widget() {
           const parts = last?.kind === "status" ? m.parts.slice(0, -1) : m.parts;
           return { ...m, parts: [...parts, { kind: "status", text: e.text }] };
         });
+      case "state":
+        stateRef.current = e.state;
+        return;
       case "preview":
-        setHasPreview(true);
-        setSaved(false);
+        setDraftId(e.draftId);
+        setSavedId(null);
         return patchLast((m) => ({
           ...m,
           parts: [...m.parts.filter((p) => p.kind !== "status"), { kind: "preview", url: e.previewUrl, title: e.title, draftId: e.draftId }],
         }));
       case "saved":
-        setSaved(true);
+        setSavedId(e.componentId);
         return patchLast((m) => ({ ...m, parts: [...m.parts, { kind: "saved", title: e.title }] }));
       case "error":
         return patchLast((m) => ({ ...m, parts: [...m.parts, { kind: "error", text: e.message }] }));
@@ -268,14 +277,14 @@ export function Widget() {
 
   const send = async () => {
     const text = input.trim();
-    if (!text || !session || busy) return;
+    if (!text || !session || !stateRef.current || busy) return;
     setInput("");
     setBusy(true);
     setMessages((ms) => [...ms, { role: "user", parts: [{ kind: "text", text }] }, { role: "assistant", parts: [{ kind: "status", text: "分析中…" }] }]);
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      await api.send(session.id, text, onEvent, ac.signal);
+      await api.send(stateRef.current!, text, onEvent, ac.signal);
     } catch (e) {
       if (!ac.signal.aborted) onEvent({ type: "error", message: `連線中斷：${(e as Error).message}` });
     } finally {
@@ -364,7 +373,7 @@ export function Widget() {
 
         {session && (
           <footer className="panel__foot">
-            {hasPreview && !busy && <SaveBar sessionId={session.id} saved={saved} onSaved={() => setSaved(true)} />}
+            {draftId && !busy && <SaveBar key={draftId} draftId={draftId} savedId={savedId} onSaved={setSavedId} />}
             <div className="composer">
               <textarea
                 ref={inputRef}
