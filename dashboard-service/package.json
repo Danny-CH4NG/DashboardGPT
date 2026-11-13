@@ -8,7 +8,7 @@
     "build": "vite build",
     "start": "tsx server.ts",
     "manifest": "tsx scripts/emit-manifest.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {

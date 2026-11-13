@@ -3,14 +3,20 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node", "vite/client"]
+    "lib": [
+      "ES2022",
+      "DOM"
+    ]
   },
-  "include": ["server", "server.ts", "widget", "vite.config.ts"]
+  "include": [
+    "server",
+    "server.ts",
+    "vite.config.ts"
+  ]
 }
