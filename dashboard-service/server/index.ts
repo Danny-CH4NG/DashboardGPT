@@ -4,7 +4,6 @@ import Fastify, { type FastifyReply } from "fastify";
 /** The Fastify factory; server.ts passes its own import so Vercel can detect the framework from the entry file. */
 export type FastifyFactory = typeof Fastify;
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -112,7 +111,9 @@ export async function buildServer(store: Store, manifest: ManifestRegistry, fast
   app.get("/api/storage", async () => ({ backend: store.backendKind }));
 
   // ---- built web app (local/Docker; on Vercel the CDN serves public/) ----
-  if (existsSync(path.join(WEB_DIR, "index.html"))) {
+  // Loaded only off Vercel: there the CDN serves public/, and this plugin's dependencies do not load in its runtime.
+  if (!process.env.VERCEL && existsSync(path.join(WEB_DIR, "index.html"))) {
+    const { default: fastifyStatic } = await import("@fastify/static");
     await app.register(fastifyStatic, { root: WEB_DIR });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith("/api") || req.url.startsWith("/mcp")) return reply.code(404).send({ error: "not_found" });

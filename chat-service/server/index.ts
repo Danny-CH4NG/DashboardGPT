@@ -4,7 +4,6 @@ import Fastify from "fastify";
 /** The Fastify factory; server.ts passes its own import so Vercel can detect the framework from the entry file. */
 export type FastifyFactory = typeof Fastify;
 import cors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -106,7 +105,9 @@ export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_
   });
 
   // widget.js + demo page (local/Docker; on Vercel the CDN serves public/)
-  if (existsSync(WEB_DIR)) {
+  // Loaded only off Vercel: there the CDN serves public/, and this plugin's dependencies do not load in its runtime.
+  if (!process.env.VERCEL && existsSync(WEB_DIR)) {
+    const { default: fastifyStatic } = await import("@fastify/static");
     await app.register(fastifyStatic, {
       root: WEB_DIR,
       setHeaders: (res) => res.header("Access-Control-Allow-Origin", "*"),
