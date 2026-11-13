@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.log
+dashboard-service/data/
+.env

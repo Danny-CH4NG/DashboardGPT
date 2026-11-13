@@ -16,8 +16,11 @@
 | 語言 | 兩邊都用 TypeScript（Node 22） | 前後端同語言、zod → JSON Schema 可直接產出 MCP 工具 schema |
 | 渲染 | **只有 dashboard 會渲染 component**；chat 預覽時用 iframe 嵌 dashboard 的 `/embed/preview/:draftId` | 避免兩套渲染器、確保「chat 看到的 = dashboard 上的」 |
 | 圖表庫 | ECharts（`echarts-for-react`） | 圖表種類齊、深色科技風容易調 |
-| 3D 站體 | `@react-three/fiber` 簡易幾何模型（月台、軌道、站體方塊＋熱區） | POC 只需示意，可旋轉縮放即可 |
-| 儲存 | dashboard-service 用 JSON 檔（`data/*.json`），之後可換 SQLite | POC 最小化 |
+| 3D 站體 | **MapLibre GL 地圖底圖 + `fill-extrusion` 簡易幾何**（站體、月台、軌道、熱區），以新竹站座標為中心，可旋轉/傾斜/縮放 | 需求：簡單幾何 + 地圖當底圖；同一個引擎同時處理地圖與 3D，免 three.js 與地圖對位。底圖用免金鑰的 Carto dark 瓦片，載入失敗時退回深色格線底 |
+| 儲存 | dashboard-service 用 JSON 檔（`data/*.json`） | 已確認 |
+| 模板定義 | **模板 = 單一元件**（type + 預設樣式 + 範例資料） | 已確認 |
+| 資料輸入 | **只支援貼上文字或表格**（CSV/TSV/Markdown 表格/從 Excel 複製的 tab 分隔） | 已確認；不做檔案上傳 |
+| API key | chat-service 讀 `ANTHROPIC_API_KEY`，未設時退回 `CLAUDE_KEY` | 已確認 |
 
 ---
 
@@ -39,7 +42,7 @@
 │ - REST API (layout,  │               │ - Agent loop          │
 │   library, drafts)   │               │   (Anthropic SDK)     │
 │ - MCP Server         │               │ - MCP client          │
-│ - SSE: layout 變更   │               │ - 檔案解析(CSV/XLSX)  │
+│ - SSE: layout 變更   │               │ - 貼上資料解析        │
 │ - JSON 檔儲存        │               │ - widget.js 靜態檔    │
 └──────────────────────┘               └──────────────────────┘
                                                 │
@@ -155,9 +158,9 @@ dashboard-service 以 `@modelcontextprotocol/sdk` 提供 MCP Server（`/mcp`）�
 [開啟] → 步驟1 選模板（UI 卡片，不經 LLM）
           ├─ Dashboard 模板（MCP list_templates）
           └─ 空白模板
-       → 步驟2 提供資料：貼上文字/表格、上傳 CSV / XLSX / JSON
+       → 步驟2 提供資料：貼上文字或表格（不支援上傳檔案）
        → 步驟3 Agent 解析
-          ├─ 後端先做確定性解析（papaparse / SheetJS）→ 欄位、型別、筆數摘要
+          ├─ 後端先做確定性解析（papaparse：CSV/TSV/Markdown 表格）→ 欄位、型別、筆數摘要
           ├─ 空白模板：Agent 依資料特徵 + list_component_types 選 type（說明理由）
           ├─ Agent 對應欄位 → 產生 spec → validate_component
           └─ 驗證失敗或資料語意有疑慮 → 向使用者說明「哪一欄/哪幾列、什麼問題」，
@@ -176,11 +179,11 @@ dashboard-service 以 `@modelcontextprotocol/sdk` 提供 MCP Server（`/mcp`）�
 
 ### 5.4 Agent 實作
 - `@anthropic-ai/sdk`，`client.messages.stream({ model: "claude-sonnet-5-5", output_config: { effort: "medium" }, tools, messages })`，自己寫 tool loop（方便插入 UI 事件，例如「已產生預覽」）。
-- Tools = MCP 工具（自動轉成 Claude tool 定義）＋ 本地工具 `inspect_uploaded_data(fileId)`。
+- Tools = MCP 工具（自動轉成 Claude tool 定義）＋ 本地工具 `inspect_pasted_data(dataId)`。
 - `tool_choice: auto` + `strict: true`；串流回前端用 SSE。
 - 開啟 refusal fallback（`fallbacks: "default"`，beta header），處理 `stop_reason: "refusal"`。
 - 對話狀態存在 chat-service 記憶體（`sessionId` → messages、目前模板、目前 draftId）。
-- API key：讀 env（目前環境有 `CLAUDE_KEY`，以 `new Anthropic({ apiKey: process.env.CLAUDE_KEY })` 明確傳入，並明確指定 `baseURL`，避免沙盒的 `ANTHROPIC_BASE_URL` 干擾）。
+- API key：`process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_KEY`，並明確指定 `baseURL`（`ANTHROPIC_API_BASE`，預設官方端點），避免環境中其他 `ANTHROPIC_BASE_URL` 干擾。
 
 ---
 
@@ -188,19 +191,19 @@ dashboard-service 以 `@modelcontextprotocol/sdk` 提供 MCP Server（`/mcp`）�
 
 | # | 內容 | 驗收 |
 |---|---|---|
-| M1 | dashboard-service 骨架：zod schema、ComponentFrame、5 種 renderer、參考概念版面（含 3D 站體 placeholder）、layout.json | 頁面呈現 ≥5 個 component；改 `grid` 參數尺寸會變；放大/說明可用 |
+| M1 | dashboard-service 骨架：zod schema、ComponentFrame、5 種 renderer、參考概念版面（含地圖底圖 + 3D 站體）、layout.json | 頁面呈現 ≥5 個 component；改 `grid` 參數尺寸會變；放大/說明可用 |
 | M2 | 替換功能 + 圖庫 + REST + SSE | 從圖庫替換任一 slot 成功並持久化 |
 | M3 | MCP Server（第 3 節工具）+ `/embed/preview/:draftId` | 用 MCP Inspector 呼叫各工具成功；validate 回傳可讀錯誤 |
-| M4 | chat-service：widget（FAB/浮層）、模板選擇、上傳解析、agent loop、SSE 串流 | 兩服務分開啟動；關掉 chat，dashboard 正常 |
+| M4 | chat-service：widget（FAB/浮層）、模板選擇、貼上資料解析、agent loop、SSE 串流 | 兩服務分開啟動；關掉 chat，dashboard 正常 |
 | M5 | 端到端：空白模板 + 有問題資料 → AI 指出問題 → 修正 → 預覽 → 存檔 → 在 dashboard 替換 | 依第 7 節情境全部通過 |
-| M6 | 3D 站體強化（熱區連動）、各自 Dockerfile、README | `docker compose up` 與單獨 `docker run` 皆可 |
+| M6 | 熱區與元件連動、各自 Dockerfile、README | `docker compose up` 與單獨 `docker run` 皆可 |
 
 ---
 
 ## 7. 驗收情境（E2E，Playwright）
-1. 選「即時人流」模板，上傳正確 CSV → 預覽為折線圖 → 存檔 → 替換右上 slot。
-2. 選空白模板，上傳「設備狀態占比」→ AI 選 donut 並說明理由。
-3. 上傳含缺值與文字數字混雜的 CSV → AI 列出第幾列哪一欄有問題，要求補充或刪除；使用者選「刪除」→ 成功渲染。
+1. 選「即時人流」模板，貼上正確表格 → 預覽為折線圖 → 存檔 → 替換右上 slot。
+2. 選空白模板，貼上「設備狀態占比」→ AI 選 donut 並說明理由。
+3. 貼上含缺值與文字數字混雜的 CSV → AI 列出第幾列哪一欄有問題，要求補充或刪除；使用者選「刪除」→ 成功渲染。
 4. 停掉 chat-service → dashboard 全功能正常；停掉 dashboard → widget 顯示無法連線。
 
 ## 8. 風險
