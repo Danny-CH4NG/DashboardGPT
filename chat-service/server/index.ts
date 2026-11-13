@@ -5,13 +5,13 @@ import Fastify from "fastify";
 export type FastifyFactory = typeof Fastify;
 import cors from "@fastify/cors";
 import path from "node:path";
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { Agent, MODEL, newChatState, type ChatEvent, type ChatState, type Template } from "./agent.ts";
 import { DashboardClient, DashboardUnavailable } from "./dashboard.ts";
 import { TYPE_HINTS } from "./prompt.ts";
 import { originChecker } from "./origins.ts";
+import { serveStatic } from "./static.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4200);
@@ -104,15 +104,11 @@ export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_
     return { ok: true };
   });
 
-  // widget.js + demo page (local/Docker; on Vercel the CDN serves public/)
-  // Loaded only off Vercel: there the CDN serves public/, and this plugin's dependencies do not load in its runtime.
-  if (!process.env.VERCEL && existsSync(WEB_DIR)) {
-    const { default: fastifyStatic } = await import("@fastify/static");
-    await app.register(fastifyStatic, {
-      root: WEB_DIR,
-      setHeaders: (res) => res.header("Access-Control-Allow-Origin", "*"),
-    });
-  }
+  // widget.js + demo page (public/; on Vercel it is bundled with the function and served from here too)
+  serveStatic(app, WEB_DIR, {
+    fallback: (p) => (p === "/" ? "index.html" : null),
+    headers: (p): Record<string, string> => (p === "/widget.js" ? { "Access-Control-Allow-Origin": "*" } : {}),
+  });
 
   return app;
 }

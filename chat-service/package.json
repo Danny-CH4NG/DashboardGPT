@@ -13,7 +13,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
     "@fastify/cors": "^11.4.2",
-    "@fastify/static": "^10.1.10",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.8",
     "papaparse": "^5.7.1",

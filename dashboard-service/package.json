@@ -8,12 +8,11 @@
     "build": "vite build",
     "start": "tsx server.ts",
     "manifest": "tsx scripts/emit-manifest.ts",
-    "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json && tsc -p tsconfig.tools.json",
     "test": "vitest run"
   },
   "dependencies": {
     "@fastify/cors": "^11.4.2",
-    "@fastify/static": "^10.1.10",
     "@fontsource/orbitron": "^5.3.0",
     "@fontsource/rajdhani": "^5.3.0",
     "@modelcontextprotocol/sdk": "^1.32.2",

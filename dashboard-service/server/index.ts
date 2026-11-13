@@ -15,6 +15,7 @@ import { Invalid, NotFound, Store } from "./store.ts";
 import { backendFromEnv } from "./storage.ts";
 import { createMcpServer } from "./mcp.ts";
 import { originChecker } from "./origins.ts";
+import { serveStatic } from "./static.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4100);
@@ -110,18 +111,16 @@ export async function buildServer(store: Store, manifest: ManifestRegistry, fast
 
   app.get("/api/storage", async () => ({ backend: store.backendKind }));
 
-  // ---- built web app (local/Docker; on Vercel the CDN serves public/) ----
-  // Loaded only off Vercel: there the CDN serves public/, and this plugin's dependencies do not load in its runtime.
-  if (!process.env.VERCEL && existsSync(path.join(WEB_DIR, "index.html"))) {
-    const { default: fastifyStatic } = await import("@fastify/static");
-    await app.register(fastifyStatic, { root: WEB_DIR });
-    app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith("/api") || req.url.startsWith("/mcp")) return reply.code(404).send({ error: "not_found" });
-      if (req.url.startsWith("/embed/")) reply.header("Content-Security-Policy", `frame-ancestors ${FRAME_ANCESTORS}`);
-      else reply.header("Content-Security-Policy", "frame-ancestors 'self'");
-      return reply.sendFile("index.html");
-    });
-  }
+  // ---- built web app (public/; on Vercel it is bundled with the function and served from here too) ----
+  serveStatic(app, WEB_DIR, {
+    fallback: (p) => (p.startsWith("/api") || p.startsWith("/mcp") || path.extname(p) ? null : "index.html"),
+    headers: (p) => ({
+      ...(p.endsWith(".html") || !path.extname(p)
+        ? { "Content-Security-Policy": `frame-ancestors ${p.startsWith("/embed/") ? FRAME_ANCESTORS : "'self'"}` }
+        : {}),
+      ...(p === "/component-manifest.json" ? { "Access-Control-Allow-Origin": "*" } : {}),
+    }),
+  });
 
   return app;
 }

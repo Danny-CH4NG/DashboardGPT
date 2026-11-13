@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { createRoot, type Root } from "react-dom/client";
 import css from "./styles.css?inline";
 import { Widget } from "./Widget.tsx";

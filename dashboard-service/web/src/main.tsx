@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { createRoot } from "react-dom/client";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "@fontsource/orbitron/500.css";

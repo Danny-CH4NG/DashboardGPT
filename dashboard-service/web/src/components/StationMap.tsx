@@ -1,3 +1,4 @@
+/// <reference types="geojson" />
 import { useEffect, useRef } from "react";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 
