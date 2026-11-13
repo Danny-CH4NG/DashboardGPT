@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ComponentSpec, Layout, Slot, ZoneId } from "../../shared/schema.ts";
+import type { ComponentSpec, Layout, Slot, ZoneId } from "./types.ts";
 import { api, useLive } from "./api.ts";
 import { ComponentFrame } from "./components/ComponentFrame.tsx";
 import { LibraryDrawer } from "./components/LibraryDrawer.tsx";

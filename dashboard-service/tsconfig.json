@@ -13,5 +13,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client", "geojson"]
   },
-  "include": ["shared", "server", "web/src", "vite.config.ts"]
+  "include": ["server", "web/src", "scripts", "vite.config.ts"]
 }

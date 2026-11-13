@@ -4,9 +4,11 @@ AI 元件助理：把使用者貼上的資料做成 dashboard 元件。可獨立
 
 ```bash
 npm install
-npx vite build            # 產生 dist/widget.js
-ANTHROPIC_API_KEY=... npm start   # :4200；獨立測試頁 http://localhost:4200/demo/
+npm run build      # 產生 dist/widget.js
+npm start          # :4200；獨立測試頁 http://localhost:4200/demo/
 ```
+
+API key 放在 `chat-service/.env`（參考 `.env.example`），Windows、macOS、Linux 都一樣，不用在命令列設定環境變數。
 
 | 環境變數 | 預設 | 說明 |
 |---|---|---|

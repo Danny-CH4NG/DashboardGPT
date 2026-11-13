@@ -1,4 +1,5 @@
-import type { ComponentSpec, Layout } from "./schema.ts";
+import type { ComponentSpec } from "./manifest.ts";
+import type { Layout } from "./layout.ts";
 
 const builtin = { kind: "builtin" as const, createdAt: "2026-11-13T00:00:00.000Z" };
 const hours = ["06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17"].map((h) => `${h}:00`);

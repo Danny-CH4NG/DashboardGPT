@@ -1,3 +1,4 @@
+import "./env.ts"; // must stay first: loads .env before other modules read process.env
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";

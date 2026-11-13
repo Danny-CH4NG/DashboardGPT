@@ -27,7 +27,8 @@ export const SYSTEM_PROMPT = `你是「儀表板元件助理」，嵌在一個�
 - id：英文小寫 kebab-case，3–64 字元，描述內容（例如 platform-temperature）。
 - title：繁體中文、40 字以內。description：一兩句，說明顯示什麼、資料來源或單位，會出現在元件的「?」說明中。
 - grid：右側面板寬 4 欄、每列約 84px。圖表一般 colSpan 2–4、rowSpan 2；數字一般 colSpan 2、rowSpan 1–2。
-- options.accent 可用 cyan / amber / green / red / violet；有門檻時用 options.thresholds { warn, alert }。
+- options 只能用該元件 get_component_schema 回傳的 optionsSchema 裡有的欄位（例如 accent、thresholds { warn, alert }）；不同元件允許的 options 不同。
+- data 還須符合 rules（例如每條數列的數值個數必須等於 x 的個數）。
 
 ## 其他
 - 使用者還沒給資料時，簡短說明這個模板需要什麼樣的資料（欄位與範例），請他貼上。

@@ -1,3 +1,4 @@
+import "./env.ts"; // must stay first: loads .env before other modules read process.env
 import Fastify, { type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
@@ -5,8 +6,9 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { gridSize } from "../shared/schema.ts";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { gridSize } from "./layout.ts";
+import { ManifestRegistry, ManifestUnavailable } from "./manifest.ts";
 import { Invalid, NotFound, Store, type StoreEvent } from "./store.ts";
 import { createMcpServer } from "./mcp.ts";
 
@@ -19,14 +21,19 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:4200,h
 const FRAME_ANCESTORS = process.env.FRAME_ANCESTORS ?? "'self' http://localhost:4200 http://localhost:5174";
 // Optional: URL of the chat widget script. Unset = dashboard runs without chat.
 const CHAT_WIDGET_URL = process.env.CHAT_WIDGET_URL ?? "";
+// Component manifest published by the frontend build: a URL (frontend deployed separately) or a file.
+const MANIFEST_URL = process.env.MANIFEST_URL || undefined;
+const MANIFEST_FILE = process.env.MANIFEST_FILE ?? path.join(root, "dist", "component-manifest.json");
+const MANIFEST_REFRESH_MS = Number(process.env.MANIFEST_REFRESH_SECONDS ?? 30) * 1000;
 
-export async function buildServer(store: Store) {
+export async function buildServer(store: Store, manifest: ManifestRegistry) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
   await app.register(cors, { origin: ALLOWED_ORIGINS });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof Invalid) return reply.code(422).send({ error: "invalid", errors: err.errors });
     if (err instanceof NotFound) return reply.code(404).send({ error: "not_found", message: err.message });
+    if (err instanceof ManifestUnavailable) return reply.code(503).send({ error: "manifest_unavailable", message: err.message });
     if (err instanceof z.ZodError) return reply.code(400).send({ error: "bad_request", errors: err.issues });
     app.log.error(err);
     return reply.code(500).send({ error: "internal", message: "internal error" });
@@ -34,6 +41,13 @@ export async function buildServer(store: Store) {
 
   // ---- config for the web app ----
   app.get("/api/config", async () => ({ chatWidgetUrl: CHAT_WIDGET_URL }));
+
+  // ---- component manifest (published by the frontend build) ----
+  app.get("/api/manifest/status", async () => manifest.status());
+  app.post("/api/manifest/reload", async () => {
+    await manifest.load();
+    return manifest.status();
+  });
 
   // ---- library ----
   app.get("/api/components", async () => store.listComponents());
@@ -73,7 +87,7 @@ export async function buildServer(store: Store) {
 
   // ---- MCP (stateless Streamable HTTP): one server + transport per request ----
   app.post("/mcp", async (req, reply) => {
-    const server = createMcpServer(store);
+    const server = createMcpServer(store, manifest);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     reply.hijack();
     reply.raw.on("close", () => {
@@ -106,8 +120,16 @@ export async function buildServer(store: Store) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const store = new Store(DATA_FILE);
+  const manifest = new ManifestRegistry({ url: MANIFEST_URL, file: MANIFEST_URL ? undefined : MANIFEST_FILE });
+  const store = new Store(DATA_FILE, manifest);
   await store.init();
-  const app = await buildServer(store);
+  const app = await buildServer(store, manifest);
+  // The page and stored data work without a manifest; validation and MCP report 503 until it loads.
+  await manifest.load().then(
+    () => app.log.info(`component manifest ${manifest.version} loaded from ${manifest.sourceLabel}`),
+    (e) => app.log.warn(`component manifest not loaded from ${manifest.sourceLabel}: ${e.message} (retrying every ${MANIFEST_REFRESH_MS / 1000}s)`),
+  );
+  manifest.on("changed", (v) => app.log.info(`component manifest changed → ${v}`));
+  manifest.startAutoReload(MANIFEST_REFRESH_MS, (e) => app.log.warn(`component manifest reload failed: ${e.message}`));
   await app.listen({ port: PORT, host: "0.0.0.0" });
 }

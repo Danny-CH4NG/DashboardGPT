@@ -1,12 +1,12 @@
 /**
  * MCP server: how other services (the AI chat) discover component types,
- * read templates, validate specs, render previews and publish components —
- * without importing any dashboard code.
+ * read templates, validate specs, render previews and publish components.
+ * Component types and their schemas come from the frontend's component manifest.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { componentSpec, componentTypeEnum, componentTypes, gridSize, validateComponent, type ComponentType } from "../shared/schema.ts";
+import { gridSize } from "./layout.ts";
+import { ManifestUnavailable, type ManifestRegistry } from "./manifest.ts";
 import { Invalid, NotFound, type Store } from "./store.ts";
 
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 4100}`).replace(/\/$/, "");
@@ -25,32 +25,33 @@ async function guard<T>(fn: () => Promise<T> | T) {
     return ok(await fn());
   } catch (e) {
     if (e instanceof Invalid) return fail("component spec is invalid", { errors: e.errors });
-    if (e instanceof NotFound) return fail(e.message);
+    if (e instanceof NotFound || e instanceof ManifestUnavailable) return fail(e.message);
     throw e;
   }
 }
-
-/** Envelope fields shown to the model; `data` is described per type by get_component_schema. */
-const specInput = z
-  .object({
-    id: z.string().optional().describe("lowercase-kebab-case English id, 3–64 chars, e.g. platform-temperature"),
-    type: componentTypeEnum,
-    title: z.string().describe("Short Traditional Chinese title, max 40 chars"),
-    description: z.string().optional().describe("One or two sentences for the ? help popover: what it shows, data source, units"),
-    grid: gridSize.describe("Default size: colSpan 1–12 (right panel is 4 columns wide), rowSpan 1–8 (one row ≈ 84px)"),
-    data: z.any().describe("Shape depends on type — call get_component_schema first"),
-    options: z.record(z.any()).optional().describe("accent, decimals, stacked, smooth, thresholds {warn, alert}"),
-  })
-  .passthrough();
 
 function withId(store: Store, spec: Record<string, unknown>) {
   if (typeof spec.id === "string" && /^[a-z0-9-]{3,64}$/.test(spec.id)) return spec;
   return { ...spec, id: store.uniqueId(typeof spec.id === "string" ? spec.id : `ai-${spec.type ?? "component"}`) };
 }
 
-export function createMcpServer(store: Store) {
-  const server = new McpServer({ name: "dashboard", version: "0.1.0" });
-  const exampleOf = (type: ComponentType) => store.listComponents().find((c) => c.type === type);
+export function createMcpServer(store: Store, manifest: ManifestRegistry) {
+  const server = new McpServer({ name: "dashboard", version: "0.2.0" });
+  // Built per request (stateless transport), so a reloaded manifest shows up immediately.
+  const names = manifest.status().types;
+  const typeField = (names.length ? z.enum(names as [string, ...string[]]) : z.string()).describe("Component type, see list_component_types");
+
+  const specInput = z
+    .object({
+      id: z.string().optional().describe("lowercase-kebab-case English id, 3–64 chars, e.g. platform-temperature"),
+      type: typeField,
+      title: z.string().describe("Short Traditional Chinese title, max 40 chars"),
+      description: z.string().optional().describe("One or two sentences for the ? help popover: what it shows, data source, units"),
+      grid: gridSize.describe("Default size: colSpan 1–12 (right panel is 4 columns wide), rowSpan 1–8 (one row ≈ 84px)"),
+      data: z.any().describe("Shape depends on type — call get_component_schema first"),
+      options: z.record(z.any()).optional().describe("Allowed keys depend on type — see optionsSchema from get_component_schema"),
+    })
+    .passthrough();
 
   server.registerTool(
     "list_component_types",
@@ -60,29 +61,36 @@ export function createMcpServer(store: Store) {
       inputSchema: {},
     },
     async () =>
-      ok({
-        types: (Object.keys(componentTypes) as ComponentType[]).map((t) => ({
-          type: t,
-          label: componentTypes[t].label,
-          kind: componentTypes[t].kind,
-          fits: componentTypes[t].fits,
-        })),
-      }),
+      guard(() => ({
+        manifestVersion: manifest.version,
+        types: manifest.types().map((t) => ({ type: t.type, label: t.label, kind: t.kind, fits: t.fits, defaultGrid: t.defaultGrid })),
+      })),
   );
 
   server.registerTool(
     "get_component_schema",
     {
       title: "Get component schema",
-      description: "Returns the JSON Schema of `data` for one component type, the envelope schema, and a working example spec.",
-      inputSchema: { type: componentTypeEnum },
+      description:
+        "Returns, for one component type: JSON Schema of `data` and `options`, cross-field rules, the envelope schema and a working example.",
+      inputSchema: { type: typeField },
     },
     async ({ type }) =>
-      ok({
-        type,
-        dataSchema: zodToJsonSchema(componentTypes[type].data, { $refStrategy: "none" }),
-        envelopeSchema: zodToJsonSchema(componentSpec.omit({ source: true, data: true }), { $refStrategy: "none" }),
-        example: exampleOf(type) ?? null,
+      guard(() => {
+        const t = manifest.get(type);
+        if (!t) throw new NotFound(`unknown component type "${type}"`);
+        return {
+          type: t.type,
+          version: t.version,
+          label: t.label,
+          fits: t.fits,
+          dataSchema: t.dataSchema,
+          optionsSchema: t.optionsSchema,
+          rules: t.rules,
+          envelopeSchema: manifest.envelopeSchema(),
+          defaultGrid: t.defaultGrid,
+          example: t.example,
+        };
       }),
   );
 
@@ -99,7 +107,7 @@ export function createMcpServer(store: Store) {
           id: c.id,
           title: c.title,
           type: c.type,
-          typeLabel: componentTypes[c.type].label,
+          typeLabel: manifest.version ? (manifest.get(c.type)?.label ?? c.type) : c.type,
           description: c.description ?? "",
           source: c.source?.kind ?? "builtin",
           createdAt: c.source?.createdAt,
@@ -120,10 +128,11 @@ export function createMcpServer(store: Store) {
       description: "Checks a component spec against the dashboard contract. Returns { ok, errors[{path, message}] }. Does not save anything.",
       inputSchema: { spec: specInput },
     },
-    async ({ spec }) => {
-      const r = validateComponent(withId(store, spec));
-      return ok(r.ok ? { ok: true } : { ok: false, errors: r.errors });
-    },
+    async ({ spec }) =>
+      guard(() => {
+        const r = manifest.validate(withId(store, spec));
+        return r.ok ? { ok: true } : { ok: false, errors: r.errors };
+      }),
   );
 
   server.registerTool(
@@ -170,11 +179,7 @@ export function createMcpServer(store: Store) {
 
   server.registerTool(
     "list_slots",
-    {
-      title: "List page slots",
-      description: "Lists the slots on the dashboard page and which component each holds.",
-      inputSchema: {},
-    },
+    { title: "List page slots", description: "Lists the slots on the dashboard page and which component each holds.", inputSchema: {} },
     async () => ok({ slots: store.listSlots() }),
   );
 

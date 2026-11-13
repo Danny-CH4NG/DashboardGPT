@@ -3,16 +3,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import {
-  layout as layoutSchema,
-  validateComponent,
-  zoneIds,
-  type ComponentSpec,
-  type GridSize,
-  type Layout,
-  type ValidationIssue,
-} from "../shared/schema.ts";
-import { seedComponents, seedLayout } from "../shared/seed.ts";
+import { layout as layoutSchema, zoneIds, type GridSize, type Layout } from "./layout.ts";
+import type { ComponentSpec, ManifestRegistry, ValidationIssue } from "./manifest.ts";
+import { seedComponents, seedLayout } from "./seed.ts";
 
 type Draft = { draftId: string; spec: ComponentSpec; createdAt: string };
 type Db = { components: Record<string, ComponentSpec>; layout: Layout; drafts: Record<string, Draft> };
@@ -30,8 +23,18 @@ export class Invalid extends Error {
 export class Store extends EventEmitter {
   private db!: Db;
   private writing: Promise<void> = Promise.resolve();
-  constructor(private file: string) {
+  constructor(
+    private file: string,
+    private manifest: ManifestRegistry,
+  ) {
     super();
+  }
+
+  /** Validation comes from the component manifest published by the frontend. */
+  private validate(input: unknown) {
+    const r = this.manifest.validate(input);
+    if (!r.ok) throw new Invalid(r.errors);
+    return { ...r.spec, source: r.spec.source && { ...r.spec.source, manifestVersion: this.manifest.version ?? undefined } };
   }
 
   async init() {
@@ -73,12 +76,11 @@ export class Store extends EventEmitter {
     return c;
   }
   async saveComponent(input: unknown) {
-    const r = validateComponent(input);
-    if (!r.ok) throw new Invalid(r.errors);
-    this.db.components[r.spec.id] = r.spec;
+    const spec = this.validate(input);
+    this.db.components[spec.id] = spec;
     await this.persist();
-    this.emitEvent({ type: "library.updated", id: r.spec.id });
-    return r.spec;
+    this.emitEvent({ type: "library.updated", id: spec.id });
+    return spec;
   }
 
   /** Makes an id unique within the library by suffixing -2, -3 … */
@@ -91,18 +93,15 @@ export class Store extends EventEmitter {
 
   // ---- drafts ----
   async createDraft(input: unknown) {
-    const r = validateComponent(input);
-    if (!r.ok) throw new Invalid(r.errors);
+    const spec = this.validate(input);
     const draftId = randomUUID();
-    this.db.drafts[draftId] = { draftId, spec: r.spec, createdAt: new Date().toISOString() };
+    this.db.drafts[draftId] = { draftId, spec, createdAt: new Date().toISOString() };
     await this.persist();
     return this.db.drafts[draftId];
   }
   async updateDraft(draftId: string, input: unknown) {
     this.getDraft(draftId);
-    const r = validateComponent(input);
-    if (!r.ok) throw new Invalid(r.errors);
-    this.db.drafts[draftId].spec = r.spec;
+    this.db.drafts[draftId].spec = this.validate(input);
     await this.persist();
     this.emitEvent({ type: "draft.updated", id: draftId });
     return this.db.drafts[draftId];

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ComponentSpec, GridSize } from "../../../shared/schema.ts";
-import { ComponentBody } from "../renderers/index.tsx";
+import type { ComponentSpec, GridSize } from "../catalog/envelope.ts";
+import { ComponentBody } from "../catalog/ComponentBody.tsx";
 
 type Props = {
   spec: ComponentSpec;

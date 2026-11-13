@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import type { ComponentSpec, GridSize, Layout } from "../../shared/schema.ts";
+import type { ComponentSpec, GridSize, Layout } from "./types.ts";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);

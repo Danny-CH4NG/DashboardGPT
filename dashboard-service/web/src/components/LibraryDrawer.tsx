@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { componentTypes, type ComponentSpec } from "../../../shared/schema.ts";
-import { ComponentBody } from "../renderers/index.tsx";
+import type { ComponentSpec } from "../catalog/envelope.ts";
+import { typeLabel } from "../catalog/index.ts";
+import { ComponentBody } from "../catalog/ComponentBody.tsx";
 
 type Props = {
   components: ComponentSpec[];
@@ -55,7 +56,7 @@ export function LibraryDrawer({ components, currentId, targetTitle, onPick, onCl
               <div className="lib-item__meta">
                 <strong>{c.title}</strong>
                 <span className="muted">
-                  {componentTypes[c.type].label}
+                  {typeLabel(c.type)}
                   {c.id === currentId ? " · 使用中" : ""}
                 </span>
               </div>

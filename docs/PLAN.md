@@ -212,3 +212,19 @@ dashboard-service 以 `@modelcontextprotocol/sdk` 提供 MCP Server（`/mcp`）�
 - **iframe 跨網域預覽**：需 dashboard 設 `frame-ancestors` 白名單（env）。
 - **LLM 產生的 spec 不合法**：一律經 `validate_component`，失敗回饋給 agent 重試（上限 2 次）再交給使用者。
 - **3D 效能**：POC 只用低面數幾何，不載入外部模型。
+
+---
+
+## 9. 架構調整：元件由前端定義（component manifest）
+
+**問題**：元件的資料格式寫在後端時，前端工程師新增或修改元件都要跟後端同步。
+
+**做法**：保留 MCP，改由前端擁有元件定義。
+- 每種元件在 `web/src/catalog/<type>/`：`definition.ts`（zod 資料格式、options、跨欄位 rules、範例）＋ `Renderer.tsx`。
+- 前端 build 產生 `component-manifest.json`（JSON Schema + rules + 範例 + 版本雜湊）。
+- dashboard 後端只讀 manifest（檔案或 URL，定期重新讀取），用 ajv + 通用規則引擎檢查，MCP 工具內容也依 manifest 產生；**後端沒有元件專屬程式**。
+- chat-service 不變。
+
+**取捨**：
+- 未採用「拿掉 MCP、改由瀏覽器 adapter 執行工具」的方案：會失去不經瀏覽器產生元件的能力（其他 agent、bot、排程），而前端定義元件的需求用 manifest 就能滿足。
+- JSON Schema 表達不了的跨欄位規則，以宣告式 `rules` 發布；前後端各有一份同語意的實作，以測試確保一致。
