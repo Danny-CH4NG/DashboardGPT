@@ -11,14 +11,16 @@ import { gridSize } from "./layout.ts";
 import { ManifestRegistry, ManifestUnavailable } from "./manifest.ts";
 import { Invalid, NotFound, Store, type StoreEvent } from "./store.ts";
 import { createMcpServer } from "./mcp.ts";
+import { originChecker } from "./origins.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4100);
 const DATA_FILE = process.env.DATA_FILE ?? path.join(root, "data", "db.json");
 // Origins allowed to call the API (e.g. the chat service) — comma separated.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:4200,http://localhost:5173").split(",").map((s) => s.trim());
+// Loopback origins are always allowed; list others (e.g. the deployed chat page), comma separated.
+const isAllowedOrigin = originChecker((process.env.ALLOWED_ORIGINS ?? "").split(","));
 // Pages allowed to embed /embed/* in an iframe.
-const FRAME_ANCESTORS = process.env.FRAME_ANCESTORS ?? "'self' http://localhost:4200 http://localhost:5174";
+const FRAME_ANCESTORS = process.env.FRAME_ANCESTORS ?? "'self' http://localhost:* http://127.0.0.1:* http://[::1]:*";
 // Optional: URL of the chat widget script. Unset = dashboard runs without chat.
 const CHAT_WIDGET_URL = process.env.CHAT_WIDGET_URL ?? "";
 // Component manifest published by the frontend build: a URL (frontend deployed separately) or a file.
@@ -28,7 +30,7 @@ const MANIFEST_REFRESH_MS = Number(process.env.MANIFEST_REFRESH_SECONDS ?? 30) *
 
 export async function buildServer(store: Store, manifest: ManifestRegistry) {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
-  await app.register(cors, { origin: ALLOWED_ORIGINS });
+  await app.register(cors, { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof Invalid) return reply.code(422).send({ error: "invalid", errors: err.errors });
@@ -74,7 +76,7 @@ export async function buildServer(store: Store, manifest: ManifestRegistry) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(req.headers.origin ?? "") ? req.headers.origin! : ALLOWED_ORIGINS[0],
+      ...(isAllowedOrigin(req.headers.origin) ? { "Access-Control-Allow-Origin": req.headers.origin!, Vary: "Origin" } : {}),
     });
     const send = (e: StoreEvent) => reply.raw.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
     const ping = setInterval(() => reply.raw.write(": ping\n\n"), 25_000);
@@ -131,5 +133,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   );
   manifest.on("changed", (v) => app.log.info(`component manifest changed → ${v}`));
   manifest.startAutoReload(MANIFEST_REFRESH_MS, (e) => app.log.warn(`component manifest reload failed: ${e.message}`));
-  await app.listen({ port: PORT, host: "0.0.0.0" });
+  // "::" listens on IPv6 and IPv4, so "localhost" works whichever one it resolves to (Windows often picks ::1).
+  // Machines without IPv6 fall back to IPv4 only.
+  try {
+    await app.listen({ port: PORT, host: process.env.HOST ?? "::" });
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (process.env.HOST || (code !== "EAFNOSUPPORT" && code !== "EADDRNOTAVAIL")) throw e;
+    await app.listen({ port: PORT, host: "0.0.0.0" });
+  }
 }

@@ -7,8 +7,6 @@ services:
     environment:
       PUBLIC_URL: http://localhost:4100                 # how browsers reach the dashboard (used in preview URLs)
       CHAT_WIDGET_URL: http://localhost:4200/widget.js  # remove to run the dashboard without chat
-      ALLOWED_ORIGINS: http://localhost:4200
-      FRAME_ANCESTORS: "'self' http://localhost:4200"
     volumes: ["dashboard-data:/data"]
 
   chat:
@@ -16,7 +14,6 @@ services:
     ports: ["4200:4200"]
     environment:
       DASHBOARD_MCP_URL: http://dashboard:4100/mcp      # server-to-server
-      ALLOWED_ORIGINS: http://localhost:4100,http://localhost:4200
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-${CLAUDE_KEY:-}}
 
 volumes:

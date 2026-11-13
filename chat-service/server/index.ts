@@ -9,19 +9,18 @@ import { z } from "zod";
 import { Agent, MODEL, type ChatEvent, type Template } from "./agent.ts";
 import { DashboardClient, DashboardUnavailable } from "./dashboard.ts";
 import { TYPE_HINTS } from "./prompt.ts";
+import { originChecker } from "./origins.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = Number(process.env.PORT ?? 4200);
 const DASHBOARD_MCP_URL = process.env.DASHBOARD_MCP_URL ?? "http://localhost:4100/mcp";
-// Pages that embed the widget (the dashboard) and may call this API.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "http://localhost:4100,http://localhost:5173,http://localhost:4200")
-  .split(",")
-  .map((s) => s.trim());
+// Pages that embed the widget may call this API. Loopback origins are always allowed; list others, comma separated.
+const isAllowedOrigin = originChecker((process.env.ALLOWED_ORIGINS ?? "").split(","));
 
 export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_URL)) {
   const agent = new Agent(dashboard);
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
-  await app.register(cors, { origin: ALLOWED_ORIGINS });
+  await app.register(cors, { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof DashboardUnavailable) return reply.code(502).send({ error: "dashboard_unavailable", message: "無法連線到 Dashboard 服務" });
@@ -71,7 +70,7 @@ export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      ...(origin && ALLOWED_ORIGINS.includes(origin) ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+      ...(isAllowedOrigin(origin) ? { "Access-Control-Allow-Origin": origin!, Vary: "Origin" } : {}),
     });
     const abort = new AbortController();
     reply.raw.on("close", () => abort.abort());
@@ -124,5 +123,13 @@ export async function buildServer(dashboard = new DashboardClient(DASHBOARD_MCP_
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_KEY) console.warn("[chat] ANTHROPIC_API_KEY is not set; chat replies will fail.");
   const app = await buildServer();
-  await app.listen({ port: PORT, host: "0.0.0.0" });
+  // "::" listens on IPv6 and IPv4, so "localhost" works whichever one it resolves to (Windows often picks ::1).
+  // Machines without IPv6 fall back to IPv4 only.
+  try {
+    await app.listen({ port: PORT, host: process.env.HOST ?? "::" });
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (process.env.HOST || (code !== "EAFNOSUPPORT" && code !== "EADDRNOTAVAIL")) throw e;
+    await app.listen({ port: PORT, host: "0.0.0.0" });
+  }
 }
